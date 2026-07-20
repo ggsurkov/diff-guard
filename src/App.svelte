@@ -34,8 +34,9 @@
   .dg-app {
     display: flex;
     flex-direction: column;
+    flex: 1;
+    min-height: 0;
     gap: 0.75rem;
-    height: 100vh;
     box-sizing: border-box;
     padding: 1rem;
   }
