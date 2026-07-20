@@ -1,0 +1,22 @@
+{
+  "name": "diff-guard",
+  "version": "0.1.0",
+  "description": "Local-first AI Git diff reviewer with generative UI, running entirely in-browser on WebLLM/WebGPU.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.7.1",
+    "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "@tsconfig/svelte": "^5.0.4",
+    "@types/chrome": "^0.2.2",
+    "svelte": "^5.56.7",
+    "svelte-check": "^4.4.1",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.3"
+  }
+}
