@@ -145,3 +145,70 @@ export function parseDiff(raw: string): ParsedDiff {
   finishFile();
   return { files };
 }
+
+/** Lines of unchanged context kept on each side of a kept `+` line when compressing for the LLM. */
+const AI_CONTEXT_RADIUS = 2;
+/** ~1500 tokens for code-like content — see .agents/harness/constraints.md on context budgeting. */
+const MAX_AI_DIFF_CHARS = 6000;
+export const AI_DIFF_TRUNCATION_MARKER = "\n…diff обрезан по лимиту токенов…";
+
+/**
+ * Collapses one hunk down to the lines worth showing the model: pure-deletion
+ * hunks (no `+` line at all) carry little signal for a frontend review and
+ * become a one-line summary; hunks with real additions keep only those lines
+ * plus a couple of lines of surrounding context, with "…" gaps in between.
+ */
+function collapseHunkForAi(hunk: Hunk): string[] {
+  const { lines } = hunk;
+  if (!lines.some((line) => line.type === "add")) {
+    const removedCount = lines.filter((line) => line.type === "delete").length;
+    return removedCount > 0 ? [`… удалённый блок без новых строк (${removedCount} строк) …`] : [];
+  }
+
+  const keep = new Array<boolean>(lines.length).fill(false);
+  lines.forEach((line, index) => {
+    if (line.type !== "add") return;
+    for (let offset = -AI_CONTEXT_RADIUS; offset <= AI_CONTEXT_RADIUS; offset += 1) {
+      const neighbor = index + offset;
+      if (neighbor >= 0 && neighbor < lines.length) keep[neighbor] = true;
+    }
+  });
+
+  const out: string[] = [];
+  let lastKeptIndex = -2;
+  lines.forEach((line, index) => {
+    if (!keep[index]) return;
+    if (index !== lastKeptIndex + 1) out.push("…");
+    lastKeptIndex = index;
+    const marker = line.type === "add" ? "+" : line.type === "delete" ? "-" : " ";
+    const num = line.lineNumber !== null ? String(line.lineNumber) : "";
+    out.push(`${marker}${num}: ${line.content}`);
+  });
+  return out;
+}
+
+/**
+ * Compresses a parsed diff into a compact, token-budgeted text block for the
+ * LLM prompt: drops deletion-only noise, keeps only real additions with a
+ * touch of context, and hard-caps the total size.
+ */
+export function compressDiffForAi(parsedDiff: ParsedDiff): string {
+  const blocks: string[] = [];
+
+  for (const file of parsedDiff.files) {
+    const fileLines: string[] = [];
+    for (const hunk of file.hunks) {
+      const collapsed = collapseHunkForAi(hunk);
+      if (collapsed.length === 0) continue;
+      fileLines.push(hunk.header, ...collapsed);
+    }
+    if (fileLines.length === 0) continue;
+    blocks.push(`### ${file.filePath} (${file.changeType})`, ...fileLines);
+  }
+
+  let text = blocks.join("\n");
+  if (text.length > MAX_AI_DIFF_CHARS) {
+    text = text.slice(0, MAX_AI_DIFF_CHARS) + AI_DIFF_TRUNCATION_MARKER;
+  }
+  return text;
+}

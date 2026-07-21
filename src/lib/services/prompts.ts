@@ -1,5 +1,8 @@
-import type { ParsedDiff } from "../parser/diffParser";
+import { compressDiffForAi, AI_DIFF_TRUNCATION_MARKER, type ParsedDiff } from "../parser/diffParser";
 import type { AiAnalysisResult, AiSuggestion, RiskLevel } from "../types/generative";
+
+/** Hard cap on findings returned to the UI — enforced both in the prompt and in code (see normalizeSuggestions). */
+export const MAX_SUGGESTIONS = 3;
 
 export const SYSTEM_PROMPT = `Ты — Senior Frontend Code Auditor, проверяешь git diff перед мерджем.
 
@@ -12,6 +15,10 @@ export const SYSTEM_PROMPT = `Ты — Senior Frontend Code Auditor, прове�
 
 Правила ответа:
 - Отвечай ТОЛЬКО валидным JSON, без markdown-обрамления (без \`\`\`), без пояснений до или после JSON.
+- Верни НЕ БОЛЕЕ 3 самых критичных замечаний на весь diff — не по одному на каждую строку. Отранжируй
+  проблемы по реальному риску (баги, производительность, память) и включи только топ-3, остальное отбрось.
+- Если ничего критичного не нашёл — лучше верни меньше замечаний или пустой список, чем натягивай мелкие
+  придирки до значимых находок.
 - Строго следуй схеме:
 {
   "overallRisk": "low" | "medium" | "high",
@@ -31,38 +38,19 @@ export const SYSTEM_PROMPT = `Ты — Senior Frontend Code Auditor, прове�
 - lineTarget обязан совпадать с номером added/context-строки, реально присутствующей в предоставленном диффе. Не придумывай filePath и lineTarget, которых нет во входных данных.
 - Если явных проблем не найдено — верни "overallRisk": "low" и пустой массив "suggestions": [].`;
 
-const MAX_DIFF_CHARS = 6000;
-
 export interface UserPrompt {
   prompt: string;
   truncated: boolean;
 }
 
 /**
- * Serializes only the changed (+/-) lines to keep the prompt within the
- * context budget of a small local model — full unabridged diffs are not
- * sent (see .agents/harness/constraints.md).
+ * Builds the user turn from a pre-compressed diff (see compressDiffForAi) to
+ * stay within the context budget of a small local model — full unabridged
+ * diffs are not sent (see .agents/harness/constraints.md).
  */
 export function buildUserPrompt(diff: ParsedDiff): UserPrompt {
-  const lines: string[] = [];
-  for (const file of diff.files) {
-    lines.push(`### ${file.filePath} (${file.changeType})`);
-    for (const hunk of file.hunks) {
-      lines.push(hunk.header);
-      for (const line of hunk.lines) {
-        if (line.type === "normal" || line.lineNumber === null) continue;
-        const marker = line.type === "add" ? "+" : "-";
-        lines.push(`${marker}${line.lineNumber}: ${line.content}`);
-      }
-    }
-  }
-
-  let body = lines.join("\n");
-  let truncated = false;
-  if (body.length > MAX_DIFF_CHARS) {
-    body = body.slice(0, MAX_DIFF_CHARS);
-    truncated = true;
-  }
+  const body = compressDiffForAi(diff);
+  const truncated = body.includes(AI_DIFF_TRUNCATION_MARKER);
 
   const prompt = `Проанализируй следующий git diff и верни JSON-отчёт по описанной схеме.${
     truncated ? " (Diff обрезан по размеру — анализируй то, что есть.)" : ""
@@ -172,6 +160,7 @@ function normalizeSuggestions(raw: unknown): AiSuggestion[] {
   if (!Array.isArray(raw)) return [];
   const result: AiSuggestion[] = [];
   raw.forEach((item, index) => {
+    if (result.length >= MAX_SUGGESTIONS) return;
     const suggestion = normalizeSuggestion(item, index);
     if (suggestion) result.push(suggestion);
   });

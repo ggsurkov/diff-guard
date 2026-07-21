@@ -1,5 +1,5 @@
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {
-    // Firefox / older Chrome without setPanelBehavior support — action click falls back to default_popup (none set), no-op.
-  });
+// Full-page dashboard, not a popup/side panel: the toolbar icon click opens
+// diff-guard as a regular tab so it survives losing focus mid-analysis.
+chrome.action.onClicked.addListener(() => {
+  void chrome.tabs.create({ url: chrome.runtime.getURL("src/dashboard/index.html") });
 });
