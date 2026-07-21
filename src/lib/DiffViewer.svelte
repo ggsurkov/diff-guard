@@ -1,75 +1,30 @@
 <script lang="ts">
-  import { parseDiff } from "./parser/diffParser";
-  import { streamMockAnalysis } from "./services/mockAi";
-  import type { AiSuggestion, RiskLevel } from "./types/generative";
-  import RiskHeatmap from "./components/widgets/RiskHeatmap.svelte";
+  import type { ParsedDiff } from "./parser/diffParser";
+  import type { AiSuggestion } from "./types/generative";
   import InlineFixCard from "./components/widgets/InlineFixCard.svelte";
   import AnimationSandbox from "./components/widgets/AnimationSandbox.svelte";
 
   interface Props {
     content: string;
+    parsed: ParsedDiff;
+    suggestions: AiSuggestion[];
   }
 
-  let { content }: Props = $props();
+  let { content, parsed, suggestions }: Props = $props();
 
-  let parsed = $derived(parseDiff(content));
-
-  let overallRisk: RiskLevel | null = $state(null);
-  let suggestions: AiSuggestion[] = $state([]);
-  let isAuditing = $state(false);
-
-  async function runAudit(): Promise<void> {
-    if (isAuditing) return;
-    isAuditing = true;
-    overallRisk = null;
-    suggestions = [];
-
-    for await (const event of streamMockAnalysis(parsed)) {
-      if (event.kind === "risk") {
-        overallRisk = event.overallRisk;
-      } else if (event.kind === "suggestion") {
-        suggestions = [...suggestions, event.suggestion];
-      } else {
-        isAuditing = false;
-      }
-    }
-  }
-
-  function suggestionsFor(
-    filePath: string,
-    lineNumber: number | null,
-  ): AiSuggestion[] {
+  function suggestionsFor(filePath: string, lineNumber: number | null): AiSuggestion[] {
     if (lineNumber === null) return [];
-    return suggestions.filter(
-      (s) => s.filePath === filePath && s.lineTarget === lineNumber,
-    );
+    return suggestions.filter((s) => s.filePath === filePath && s.lineTarget === lineNumber);
   }
 </script>
 
 <div class="dg-viewer">
-  <div class="dg-viewer__toolbar">
-    <button
-      type="button"
-      class="dg-viewer__audit-btn"
-      onclick={runAudit}
-      disabled={isAuditing}
-    >
-      {isAuditing ? "Анализирую…" : "🤖 Запустить ИИ-Аудит (Demo)"}
-    </button>
-  </div>
-
-  {#if overallRisk}
-    <RiskHeatmap {overallRisk} {suggestions} />
-  {/if}
-
   {#if parsed.files.length === 0}
-    <p class="dg-viewer__fallback-note">
-      Не удалось распознать формат git diff — показан исходный текст.
-    </p>
+    <p class="dg-viewer__fallback-note">Не удалось распознать формат git diff — показан исходный текст.</p>
     <pre class="dg-viewer__pre"><code>{content}</code></pre>
   {:else}
     {#each parsed.files as file, fileIndex (fileIndex)}
-      <div class="dg-file">
+      <div class="dg-file" id="dg-file-{fileIndex}">
         <div class="dg-file__header">
           {#if file.changeType === "renamed"}
             {file.oldFilePath} → {file.filePath}
@@ -85,13 +40,7 @@
             {#each hunk.lines as line, lineIndex (lineIndex)}
               <div class="dg-line dg-line--{line.type}">
                 <span class="dg-line__num">{line.lineNumber ?? ""}</span>
-                <span class="dg-line__marker"
-                  >{line.type === "add"
-                    ? "+"
-                    : line.type === "delete"
-                      ? "-"
-                      : ""}</span
-                >
+                <span class="dg-line__marker">{line.type === "add" ? "+" : line.type === "delete" ? "-" : ""}</span>
                 <span class="dg-line__content">{line.content}</span>
               </div>
               {#each suggestionsFor(file.filePath, line.lineNumber) as suggestion (suggestion.id)}
@@ -118,30 +67,11 @@
     overflow: auto;
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
-    padding: 0.6rem;
+    gap: 0.85rem;
+    padding: 0.85rem;
     border: 1px solid var(--dg-border, #444);
-    border-radius: 8px;
+    border-radius: 10px;
     background: var(--dg-code-bg, #1e1e1e);
-  }
-
-  .dg-viewer__toolbar {
-    display: flex;
-  }
-
-  .dg-viewer__audit-btn {
-    padding: 0.4rem 0.8rem;
-    border: 1px solid var(--dg-accent, #4f8cff);
-    border-radius: 6px;
-    background: var(--dg-accent-bg, rgba(79, 140, 255, 0.08));
-    color: inherit;
-    cursor: pointer;
-    font-size: 0.82rem;
-  }
-
-  .dg-viewer__audit-btn:disabled {
-    opacity: 0.6;
-    cursor: default;
   }
 
   .dg-viewer__fallback-note {
@@ -161,8 +91,9 @@
 
   .dg-file {
     border: 1px solid var(--dg-border, #333);
-    border-radius: 6px;
-    overflow: scroll;
+    border-radius: 8px;
+    overflow: hidden;
+    scroll-margin-top: 0.85rem;
   }
 
   .dg-file__header {
@@ -170,10 +101,12 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
-    padding: 0.4rem 0.6rem;
+    padding: 0.5rem 0.75rem;
     background: rgba(255, 255, 255, 0.04);
-    font-size: 0.8rem;
+    font-size: 0.82rem;
     font-weight: 600;
+    position: sticky;
+    top: 0;
   }
 
   .dg-file__badge {
@@ -184,7 +117,7 @@
   }
 
   .dg-hunk__header {
-    padding: 0.2rem 0.6rem;
+    padding: 0.2rem 0.75rem;
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
     font-size: 0.72rem;
     color: var(--dg-text-muted, #999);
@@ -194,10 +127,10 @@
   .dg-line {
     display: flex;
     gap: 0.6rem;
-    padding: 0 0.6rem;
+    padding: 0 0.75rem;
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-    font-size: 0.78rem;
-    line-height: 1.5;
+    font-size: 0.8rem;
+    line-height: 1.55;
     white-space: pre-wrap;
     word-break: break-word;
   }
@@ -211,7 +144,7 @@
   }
 
   .dg-line__num {
-    flex: 0 0 2.5rem;
+    flex: 0 0 2.8rem;
     text-align: right;
     color: var(--dg-text-muted, #999);
     user-select: none;
@@ -236,6 +169,6 @@
   }
 
   .dg-widget-slot {
-    padding: 0 0.6rem;
+    padding: 0 0.75rem;
   }
 </style>

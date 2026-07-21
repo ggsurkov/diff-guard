@@ -4,10 +4,15 @@
 
 - Только **Manifest V3**. Никаких `manifest_version: 2`, `background.page`,
   `background.scripts` (persistent background) — их не существует в MV3.
-- Основной UI — **Side Panel** (`chrome.sidePanel`), не popup: анализ diff'а —
-  долгоживущая задача с прогрессом загрузки модели, popup закрывается при
-  потере фокуса и убивает состояние. Popup можно оставить только как лёгкую
-  точку входа ("Open in side panel").
+- Основной UI — **полноэкранный Dashboard** (`src/dashboard/index.html`),
+  открывается в отдельной вкладке (`chrome.tabs.create`) по клику на иконку
+  расширения (`chrome.action.onClicked`), не popup и не Side Panel: анализ
+  diff'а — долгоживущая задача с прогрессом загрузки модели, popup закрывается
+  при потере фокуса и убивает состояние, а Side Panel слишком тесен для
+  двухколоночного макета с песочницами. Страница также зарегистрирована как
+  `options_ui` (`open_in_tab: true`) — это единственный manifest-хук, которым
+  crxjs подхватывает статичную html-страницу для полноценной сборки; сама
+  открывающая логика не завязана на `chrome.runtime.openOptionsPage()`.
 
 ## Service Worker
 
@@ -16,9 +21,11 @@
   Любое состояние, которое должно пережить перезапуск воркера, — в
   `chrome.storage.local`, не в module-level переменных.
 - Не выполняй инференс WebLLM/WebGPU в service worker — там нет доступа к
-  WebGPU. Вся ML-логика живёт в side panel / content-контексте с DOM.
+  WebGPU. Вся ML-логика живёт в dashboard-вкладке / content-контексте с DOM.
 - Service worker используется только для оркестрации: жизненный цикл
-  расширения, `chrome.action`/`chrome.sidePanel` API, message passing.
+  расширения, `chrome.action.onClicked` → `chrome.tabs.create`, message
+  passing. Никакого `chrome.sidePanel` — от него отказались в пользу
+  полноэкранного Dashboard.
 
 ## CSP и WebAssembly/WebGPU
 
@@ -39,12 +46,16 @@
 ## Permissions
 
 - Запрашивать только то, что реально используется на этой итерации
-  (`sidePanel`, `storage`). Не добавлять `tabs`, `activeTab`, `scripting`
-  и т.п. "про запас".
+  (`storage`). Не добавлять `activeTab`, `scripting` и т.п. "про запас".
+  `chrome.tabs.create` из service worker на URL самого расширения не требует
+  permission `tabs`.
 - Diff грузится через `<input type="file">` / File System Access API из
-  самой страницы side panel — это не требует дополнительных Chrome-permissions.
+  самой dashboard-страницы — это не требует дополнительных Chrome-permissions.
+- `host_permissions`/CSP `connect-src` для Ollama ограничены
+  `http://localhost:11434/*` — локальный движок, не произвольный `<all_urls>`.
 
 ## Отладка
 
 - Логи service worker — `chrome://extensions` → "Service worker" → "Inspect".
-- Side panel — открывается как обычная DevTools-панель через ПКМ → "Inspect".
+- Dashboard-вкладка — открывается как обычная страница, DevTools обычным
+  способом (F12) или ПКМ → "Inspect".

@@ -15,8 +15,12 @@
 - **Генеративный UI**: ответ модели парсится в структурированные блоки, из
   которых на лету собираются Svelte-компоненты (карточки, песочницы), а не
   просто markdown-текст.
-- **Manifest V3**: расширение живёт как Chrome Extension (Side Panel), без
-  persistent background — только event-driven service worker.
+- **Manifest V3**: расширение живёт как Chrome Extension. UI — полноэкранный
+  Dashboard, открывающийся в отдельной вкладке по клику на иконку расширения
+  (`chrome.tabs.create`), не Side Panel и не popup — анализ diff'а долгоживущая
+  задача, а вкладка не убивает состояние при потере фокуса. Никакого
+  persistent background — только event-driven service worker (оркестрация
+  открытия вкладки).
 - **File System Access API**: используется для локальной загрузки diff-файлов
   и (в перспективе) чтения файлов проекта для более богатого контекста ревью.
 

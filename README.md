@@ -1,10 +1,12 @@
 # diff-guard
 
 Локальный AI-аудитор Git diff для фронтендеров с генеративным UI. Chrome
-Extension (Manifest V3): анализ `.diff`-файлов прямо в браузере через WebLLM
-на WebGPU — без сети и без бэкенда, код не покидает устройство.
+Extension (Manifest V3) с полноэкранным Dashboard (открывается в отдельной
+вкладке): анализ `.diff`-файлов прямо на устройстве — через WebLLM/WebGPU в
+браузере или через локальный Ollama-сервер (`localhost:11434`), без внешнего
+бэкенда, код не покидает устройство.
 
-**Стек:** Svelte 5 (Runes) · TypeScript · Vite · WebLLM · WebGPU
+**Стек:** Svelte 5 (Runes) · TypeScript · Vite · WebLLM · WebGPU · Ollama
 
 ## Запуск
 
