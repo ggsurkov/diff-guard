@@ -18,5 +18,8 @@
     "svelte-check": "^4.4.1",
     "typescript": "^5.9.3",
     "vite": "^6.4.3"
+  },
+  "dependencies": {
+    "@mlc-ai/web-llm": "^0.2.84"
   }
 }
