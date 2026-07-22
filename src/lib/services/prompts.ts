@@ -1,17 +1,53 @@
 import { compressDiffForAi, AI_DIFF_TRUNCATION_MARKER, type ParsedDiff } from "../parser/diffParser";
+import type { AuditRulesConfig } from "../types/engine";
+import { DEFAULT_AUDIT_RULES } from "../types/engine";
 import type { AiAnalysisResult, AiSuggestion, RiskLevel } from "../types/generative";
 
 /** Hard cap on findings returned to the UI — enforced both in the prompt and in code (see normalizeSuggestions). */
 export const MAX_SUGGESTIONS = 3;
 
-export const SYSTEM_PROMPT = `Ты — Senior Frontend Code Auditor, проверяешь git diff перед мерджем.
+function buildFocusAreas(rules: AuditRulesConfig): string[] {
+  const areas: string[] = [];
+
+  if (rules.frameworkReactSvelte) {
+    areas.push("React: замыкания и неполные/неверные массивы зависимостей useEffect/useMemo/useCallback.");
+    areas.push("Svelte 5: устаревший синтаксис (export let, $:, <slot>) вместо рун $state/$derived/$effect/$props.");
+    areas.push("Утечки памяти: неотписанные подписки, таймеры, event-листенеры, забытые AbortController/cleanup.");
+  }
+  if (rules.uiPerformance) {
+    areas.push(
+      "CSS/UI-производительность: анимации через margin/top/left/width вместо transform/opacity, layout thrashing и лишние reflow/repaint.",
+    );
+  }
+  if (rules.typescriptSafety) {
+    areas.push(
+      "TypeScript: использование any, оператор ! (non-null assertion), небезопасные приведения типов (as), отсутствие строгой типизации на границах модулей.",
+    );
+  }
+  if (rules.customRuleEnabled && rules.customRuleText.trim()) {
+    areas.push(`Пользовательское правило: ${rules.customRuleText.trim()}`);
+  }
+
+  return areas;
+}
+
+/**
+ * Builds the system prompt from the user's selected audit rule toggles (see
+ * AuditSettings.svelte) — unchecked focus areas are dropped from the prompt
+ * entirely rather than just de-prioritized, so the model doesn't waste its
+ * limited output budget on findings the user opted out of.
+ */
+export function buildSystemPrompt(rules: AuditRulesConfig = DEFAULT_AUDIT_RULES): string {
+  const focusAreas = buildFocusAreas(rules);
+  const focusList =
+    focusAreas.length > 0
+      ? focusAreas.map((area, index) => `${index + 1}. ${area}`).join("\n")
+      : "Общее ревью на баги, производительность и надёжность — без выделенного фокуса (все правила отключены пользователем).";
+
+  return `Ты — Senior Frontend Code Auditor, проверяешь git diff перед мерджем.
 
 Фокус ревью (в порядке приоритета):
-1. React: замыкания и неполные/неверные массивы зависимостей useEffect/useMemo/useCallback.
-2. Svelte 5: устаревший синтаксис (export let, $:, <slot>) вместо рун $state/$derived/$effect/$props.
-3. CSS-производительность: анимации через margin/top/left/width вместо transform/opacity (layout thrashing).
-4. TypeScript: использование any, отсутствие строгой типизации на границах модулей.
-5. Утечки памяти: неотписанные подписки, таймеры, event-листенеры, забытые AbortController/cleanup.
+${focusList}
 
 Правила ответа:
 - Отвечай ТОЛЬКО валидным JSON, без markdown-обрамления (без \`\`\`), без пояснений до или после JSON.
@@ -37,6 +73,7 @@ export const SYSTEM_PROMPT = `Ты — Senior Frontend Code Auditor, прове�
 - payload для "ux_tip": { "description": string }
 - lineTarget обязан совпадать с номером added/context-строки, реально присутствующей в предоставленном диффе. Не придумывай filePath и lineTarget, которых нет во входных данных.
 - Если явных проблем не найдено — верни "overallRisk": "low" и пустой массив "suggestions": [].`;
+}
 
 export interface UserPrompt {
   prompt: string;

@@ -2,6 +2,7 @@
   import DiffDropzone from "./lib/DiffDropzone.svelte";
   import DiffViewer from "./lib/DiffViewer.svelte";
   import Sidebar from "./lib/dashboard/Sidebar.svelte";
+  import ExportReportModal from "./lib/components/ExportReportModal.svelte";
   import { parseDiff, type ParsedDiff } from "./lib/parser/diffParser";
   import { streamMockAnalysis } from "./lib/services/mockAi";
   import { isWebGpuSupported } from "./lib/services/webgpu";
@@ -12,7 +13,8 @@
     type OllamaConfig,
   } from "./lib/services/ollamaService";
   import type { LoadedDiff } from "./lib/types";
-  import type { AiMode, EngineStatus } from "./lib/types/engine";
+  import type { AiMode, AuditRulesConfig, EngineStatus } from "./lib/types/engine";
+  import { DEFAULT_AUDIT_RULES } from "./lib/types/engine";
   import type { AiAnalysisResult, AiSuggestion, RiskLevel } from "./lib/types/generative";
 
   let diff: LoadedDiff | null = $state(null);
@@ -23,6 +25,7 @@
   let mode: AiMode = $state(webGpuSupported ? "webllm" : "mock");
   let engineStatus: EngineStatus = $state(webGpuSupported ? { kind: "idle" } : { kind: "no-webgpu" });
   let ollamaConfig: OllamaConfig = $state({ ...DEFAULT_OLLAMA_CONFIG });
+  let auditRules: AuditRulesConfig = $state({ ...DEFAULT_AUDIT_RULES });
 
   let overallRisk: RiskLevel | null = $state(null);
   let suggestions: AiSuggestion[] = $state([]);
@@ -64,6 +67,10 @@
 
   function handleOllamaConfigChange(config: OllamaConfig): void {
     ollamaConfig = config;
+  }
+
+  function handleAuditRulesChange(rules: AuditRulesConfig): void {
+    auditRules = rules;
   }
 
   function mergeStreamedResult(partial: Partial<AiAnalysisResult>, seenIds: Set<string>): void {
@@ -123,7 +130,7 @@
 
     const seenIds = new Set<string>();
     try {
-      const result = await analyzeDiff(parsed, (partial) => mergeStreamedResult(partial, seenIds));
+      const result = await analyzeDiff(parsed, (partial) => mergeStreamedResult(partial, seenIds), auditRules);
       mergeFinalResult(result, seenIds);
     } catch (err) {
       engineStatus = { kind: "error", message: err instanceof Error ? err.message : String(err) };
@@ -146,7 +153,12 @@
 
     const seenIds = new Set<string>();
     try {
-      const result = await analyzeDiffWithOllama(parsed, ollamaConfig, (partial) => mergeStreamedResult(partial, seenIds));
+      const result = await analyzeDiffWithOllama(
+        parsed,
+        ollamaConfig,
+        (partial) => mergeStreamedResult(partial, seenIds),
+        auditRules,
+      );
       mergeFinalResult(result, seenIds);
     } catch (err) {
       engineStatus = { kind: "error", message: err instanceof Error ? err.message : String(err) };
@@ -177,6 +189,9 @@
   <header class="dg-dashboard__header">
     <h1 class="dg-dashboard__title">diff-guard</h1>
     <span class="dg-dashboard__subtitle">Локальный AI-аудитор Git diff</span>
+    <div class="dg-dashboard__header-actions">
+      <ExportReportModal files={parsed.files} {overallRisk} {suggestions} />
+    </div>
   </header>
 
   {#if !diff}
@@ -196,8 +211,10 @@
         {isAuditing}
         {webGpuSupported}
         {ollamaConfig}
+        {auditRules}
         onModeChange={handleModeChange}
         onOllamaConfigChange={handleOllamaConfigChange}
+        onAuditRulesChange={handleAuditRulesChange}
         onRunAudit={runAudit}
         onReset={reset}
       />
@@ -231,6 +248,10 @@
   .dg-dashboard__subtitle {
     font-size: 0.8rem;
     color: var(--dg-text-muted, #999);
+  }
+
+  .dg-dashboard__header-actions {
+    margin-left: auto;
   }
 
   .dg-dashboard__empty {

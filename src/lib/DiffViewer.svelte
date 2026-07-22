@@ -12,15 +12,22 @@
 
   let { content, parsed, suggestions }: Props = $props();
 
-  function suggestionsFor(filePath: string, lineNumber: number | null): AiSuggestion[] {
+  function suggestionsFor(
+    filePath: string,
+    lineNumber: number | null,
+  ): AiSuggestion[] {
     if (lineNumber === null) return [];
-    return suggestions.filter((s) => s.filePath === filePath && s.lineTarget === lineNumber);
+    return suggestions.filter(
+      (s) => s.filePath === filePath && s.lineTarget === lineNumber,
+    );
   }
 </script>
 
 <div class="dg-viewer">
   {#if parsed.files.length === 0}
-    <p class="dg-viewer__fallback-note">Не удалось распознать формат git diff — показан исходный текст.</p>
+    <p class="dg-viewer__fallback-note">
+      Не удалось распознать формат git diff — показан исходный текст.
+    </p>
     <pre class="dg-viewer__pre"><code>{content}</code></pre>
   {:else}
     {#each parsed.files as file, fileIndex (fileIndex)}
@@ -40,13 +47,22 @@
             {#each hunk.lines as line, lineIndex (lineIndex)}
               <div class="dg-line dg-line--{line.type}">
                 <span class="dg-line__num">{line.lineNumber ?? ""}</span>
-                <span class="dg-line__marker">{line.type === "add" ? "+" : line.type === "delete" ? "-" : ""}</span>
+                <span class="dg-line__marker"
+                  >{line.type === "add"
+                    ? "+"
+                    : line.type === "delete"
+                      ? "-"
+                      : ""}</span
+                >
                 <span class="dg-line__content">{line.content}</span>
               </div>
               {#each suggestionsFor(file.filePath, line.lineNumber) as suggestion (suggestion.id)}
                 <div class="dg-widget-slot">
                   {#if suggestion.type === "inline_fix"}
-                    <InlineFixCard payload={suggestion.payload} />
+                    <InlineFixCard
+                      filePath={suggestion.filePath}
+                      payload={suggestion.payload}
+                    />
                   {:else if suggestion.type === "animation_sandbox"}
                     <AnimationSandbox payload={suggestion.payload} />
                   {/if}
@@ -92,7 +108,6 @@
   .dg-file {
     border: 1px solid var(--dg-border, #333);
     border-radius: 8px;
-    overflow: hidden;
     scroll-margin-top: 0.85rem;
   }
 

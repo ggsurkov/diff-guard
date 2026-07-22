@@ -1,7 +1,9 @@
 import { CreateMLCEngine, type MLCEngine } from "@mlc-ai/web-llm";
 import type { ParsedDiff } from "../parser/diffParser";
+import type { AuditRulesConfig } from "../types/engine";
+import { DEFAULT_AUDIT_RULES } from "../types/engine";
 import type { AiAnalysisResult } from "../types/generative";
-import { SYSTEM_PROMPT, buildUserPrompt, extractAndParseJson, extractPartialAnalysis } from "./prompts";
+import { buildSystemPrompt, buildUserPrompt, extractAndParseJson, extractPartialAnalysis } from "./prompts";
 import { isWebGpuSupported } from "./webgpu";
 
 export const PRIMARY_MODEL_ID = "Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC";
@@ -79,6 +81,7 @@ export async function unloadEngine(): Promise<void> {
 export async function analyzeDiff(
   diff: ParsedDiff,
   onChunk?: (partialResult: Partial<AiAnalysisResult>) => void,
+  rules: AuditRulesConfig = DEFAULT_AUDIT_RULES,
 ): Promise<AiAnalysisResult> {
   if (!engineInstance) {
     throw new Error("WebLLM engine ещё не инициализирован — сначала вызовите initEngine().");
@@ -91,7 +94,7 @@ export async function analyzeDiff(
 
   const completion = await engineInstance.chat.completions.create({
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: buildSystemPrompt(rules) },
       { role: "user", content: prompt },
     ],
     stream: true,
