@@ -2,7 +2,10 @@ export type DiffLineType = "add" | "delete" | "normal";
 
 export interface DiffLine {
   type: DiffLineType;
-  lineNumber: number | null;
+  /** Line's position in the OLD file. Null for "add" lines (they don't exist in the old file). */
+  oldLineNumber: number | null;
+  /** Line's position in the NEW file. Null for "delete" lines (they don't exist in the new file). */
+  newLineNumber: number | null;
   content: string;
 }
 
@@ -124,19 +127,29 @@ export function parseDiff(raw: string): ParsedDiff {
 
     if (rawLine.startsWith("\\")) {
       // "\ No newline at end of file" marker — not a real content line.
-      currentHunk.lines.push({ type: "normal", lineNumber: null, content: rawLine });
+      currentHunk.lines.push({ type: "normal", oldLineNumber: null, newLineNumber: null, content: rawLine });
       continue;
     }
 
     if (rawLine.startsWith("+")) {
-      currentHunk.lines.push({ type: "add", lineNumber: newLineCounter, content: rawLine.slice(1) });
+      currentHunk.lines.push({
+        type: "add",
+        oldLineNumber: null,
+        newLineNumber: newLineCounter,
+        content: rawLine.slice(1),
+      });
       newLineCounter += 1;
     } else if (rawLine.startsWith("-")) {
-      currentHunk.lines.push({ type: "delete", lineNumber: oldLineCounter, content: rawLine.slice(1) });
+      currentHunk.lines.push({
+        type: "delete",
+        oldLineNumber: oldLineCounter,
+        newLineNumber: null,
+        content: rawLine.slice(1),
+      });
       oldLineCounter += 1;
     } else {
       const content = rawLine.startsWith(" ") ? rawLine.slice(1) : rawLine;
-      currentHunk.lines.push({ type: "normal", lineNumber: newLineCounter, content });
+      currentHunk.lines.push({ type: "normal", oldLineNumber: oldLineCounter, newLineNumber: newLineCounter, content });
       oldLineCounter += 1;
       newLineCounter += 1;
     }
@@ -180,11 +193,23 @@ function collapseHunkForAi(hunk: Hunk): string[] {
     if (!keep[index]) return;
     if (index !== lastKeptIndex + 1) out.push("…");
     lastKeptIndex = index;
-    const marker = line.type === "add" ? "+" : line.type === "delete" ? "-" : " ";
-    const num = line.lineNumber !== null ? String(line.lineNumber) : "";
-    out.push(`${marker}${num}: ${line.content}`);
+    out.push(formatLineForAi(line));
   });
   return out;
+}
+
+/**
+ * Renders one diff line for the LLM prompt with an explicit `[L<n>]` tag
+ * holding its real NEW-file line number — the only number the model is
+ * allowed to echo back as `lineTarget` (see buildSystemPrompt in prompts.ts).
+ * Deleted lines have no new-file line number, so they're tagged `[DEL]`
+ * instead of a number, so the model can't mistake an old-file line number
+ * for a targetable new-file one.
+ */
+function formatLineForAi(line: DiffLine): string {
+  const marker = line.type === "add" ? "+" : line.type === "delete" ? "-" : " ";
+  const tag = line.newLineNumber !== null ? `[L${line.newLineNumber}]` : "[DEL]";
+  return `${tag} ${marker} ${line.content}`;
 }
 
 /**

@@ -1,8 +1,9 @@
 <script lang="ts">
-  import type { ParsedDiff } from "./parser/diffParser";
+  import type { DiffLine, ParsedDiff } from "./parser/diffParser";
   import type { AiSuggestion } from "./types/generative";
   import InlineFixCard from "./components/widgets/InlineFixCard.svelte";
   import AnimationSandbox from "./components/widgets/AnimationSandbox.svelte";
+  import { appliedFixIds } from "./services/fileSystemService.svelte";
 
   interface Props {
     content: string;
@@ -12,13 +13,33 @@
 
   let { content, parsed, suggestions }: Props = $props();
 
-  function suggestionsFor(
-    filePath: string,
-    lineNumber: number | null,
-  ): AiSuggestion[] {
-    if (lineNumber === null) return [];
-    return suggestions.filter(
-      (s) => s.filePath === filePath && s.lineTarget === lineNumber,
+  /**
+   * Widgets attach strictly to `newLineNumber` — the same "real new-file line
+   * number" the AI is told to use for `lineTarget` (see prompts.ts). Deleted
+   * lines have `newLineNumber === null` and are never a match target: their
+   * `oldLineNumber` can numerically collide with an unrelated line's
+   * `newLineNumber` in the same hunk, which previously caused a suggestion to
+   * render under the wrong (deleted) line.
+   */
+  function suggestionsFor(filePath: string, newLineNumber: number | null): AiSuggestion[] {
+    if (newLineNumber === null) return [];
+    return suggestions.filter((s) => s.filePath === filePath && s.lineTarget === newLineNumber);
+  }
+
+  /** Gutter display only — falls back to the old-file number for deleted lines so the column isn't blank. */
+  function displayLineNumber(line: DiffLine): number | null {
+    return line.newLineNumber ?? line.oldLineNumber;
+  }
+
+  /** True once a file-patching suggestion (inline_fix or animation_sandbox) targeting this exact line has been written to disk. */
+  function isLineFixed(filePath: string, newLineNumber: number | null): boolean {
+    if (newLineNumber === null) return false;
+    return suggestions.some(
+      (s) =>
+        (s.type === "inline_fix" || s.type === "animation_sandbox") &&
+        s.filePath === filePath &&
+        s.lineTarget === newLineNumber &&
+        appliedFixIds.has(s.id),
     );
   }
 </script>
@@ -45,8 +66,11 @@
           <div class="dg-hunk">
             <div class="dg-hunk__header">{hunk.header}</div>
             {#each hunk.lines as line, lineIndex (lineIndex)}
-              <div class="dg-line dg-line--{line.type}">
-                <span class="dg-line__num">{line.lineNumber ?? ""}</span>
+              <div
+                class="dg-line dg-line--{line.type}"
+                class:dg-line--fixed={isLineFixed(file.filePath, line.newLineNumber)}
+              >
+                <span class="dg-line__num">{displayLineNumber(line) ?? ""}</span>
                 <span class="dg-line__marker"
                   >{line.type === "add"
                     ? "+"
@@ -56,15 +80,20 @@
                 >
                 <span class="dg-line__content">{line.content}</span>
               </div>
-              {#each suggestionsFor(file.filePath, line.lineNumber) as suggestion (suggestion.id)}
+              {#each suggestionsFor(file.filePath, line.newLineNumber) as suggestion (suggestion.id)}
                 <div class="dg-widget-slot">
                   {#if suggestion.type === "inline_fix"}
                     <InlineFixCard
+                      suggestionId={suggestion.id}
                       filePath={suggestion.filePath}
                       payload={suggestion.payload}
                     />
                   {:else if suggestion.type === "animation_sandbox"}
-                    <AnimationSandbox payload={suggestion.payload} />
+                    <AnimationSandbox
+                      suggestionId={suggestion.id}
+                      filePath={suggestion.filePath}
+                      payload={suggestion.payload}
+                    />
                   {/if}
                 </div>
               {/each}
@@ -156,6 +185,12 @@
 
   .dg-line--delete {
     background: rgba(248, 81, 73, 0.12);
+  }
+
+  /* Wins over --add/--delete (same specificity, declared later) — marks a line whose fix was written to disk. */
+  .dg-line--fixed {
+    background: rgba(63, 185, 80, 0.28);
+    box-shadow: inset 3px 0 0 #3fb950;
   }
 
   .dg-line__num {

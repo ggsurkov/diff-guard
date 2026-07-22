@@ -24,7 +24,7 @@ function describeSuggestion(suggestion: AiSuggestion): string {
     case "inline_fix":
       return suggestion.payload.explanation;
     case "animation_sandbox":
-      return suggestion.payload.explanation;
+      return suggestion.payload.description;
     case "ux_tip":
       return suggestion.payload.description;
   }

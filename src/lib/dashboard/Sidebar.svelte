@@ -57,6 +57,7 @@
 
   const fsSupported = isFileSystemAccessSupported();
   let folderPickError = $state<string | null>(null);
+  let activeFileIndex = $state<number | null>(null);
   let showAnthropicKey = $state(false);
   let anthropicModelPreset = $derived(
     ANTHROPIC_MODEL_OPTIONS.some((option) => option.id === anthropicConfig.model) ? anthropicConfig.model : "custom",
@@ -76,6 +77,7 @@
   }
 
   function jumpToFile(index: number): void {
+    activeFileIndex = index;
     document.getElementById(`dg-file-${index}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -138,14 +140,6 @@
         onclick={() => onModeChange("anthropic")}
       >
         🧠 Claude API (Anthropic)
-      </button>
-      <button
-        type="button"
-        class="dg-engine-btn"
-        class:dg-engine-btn--active={mode === "mock"}
-        onclick={() => onModeChange("mock")}
-      >
-        🧪 Mock Demo
       </button>
     </div>
 
@@ -231,14 +225,12 @@
       {isAuditing ? "Анализирую…" : "🤖 Запустить ИИ-Аудит"}
     </button>
 
-    {#if mode !== "mock"}
-      <div class="dg-status dg-status--{engineStatus.kind}">
-        <span>{statusText}</span>
-        {#if engineStatus.kind === "loading"}
-          <div class="dg-status__bar"><div class="dg-status__bar-fill" style="width:{Math.round(engineStatus.progress * 100)}%"></div></div>
-        {/if}
-      </div>
-    {/if}
+    <div class="dg-status dg-status--{engineStatus.kind}">
+      <span>{statusText}</span>
+      {#if engineStatus.kind === "loading"}
+        <div class="dg-status__bar"><div class="dg-status__bar-fill" style="width:{Math.round(engineStatus.progress * 100)}%"></div></div>
+      {/if}
+    </div>
   </div>
 
   {#if overallRisk}
@@ -251,7 +243,12 @@
     <h2 class="dg-sidebar__heading">Файлы ({files.length})</h2>
     <nav class="dg-file-nav">
       {#each files as file, index (index)}
-        <button type="button" class="dg-file-nav__item" onclick={() => jumpToFile(index)}>
+        <button
+          type="button"
+          class="dg-file-nav__item"
+          class:dg-file-nav__item--active={activeFileIndex === index}
+          onclick={() => jumpToFile(index)}
+        >
           <span class="dg-file-nav__path" title={file.filePath}>
             {#if file.changeType === "renamed"}
               {file.oldFilePath} → {file.filePath}
@@ -274,6 +271,11 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    /* Grid items default to min-height:auto (they refuse to shrink below
+       their content), which silently disables overflow-y:auto below —
+       the item just grows instead of scrolling. min-height:0 opts back in. */
+    min-height: 0;
+    height: 100%;
     overflow-y: auto;
     padding: 1rem;
     border-right: 1px solid var(--dg-border, #333);
@@ -290,6 +292,12 @@
   .dg-sidebar__section--files {
     flex: 1;
     min-height: 0;
+    /* Bounds the section to its flex-allotted space so the <nav> below scrolls
+       on its own instead of spilling out (default overflow:visible) or getting
+       squeezed to near-zero height — this is the only section with
+       min-height:0, so it's the one flex-shrink squeezes first/hardest when
+       the sidebar's total content overflows. */
+    overflow: hidden;
     border-bottom: none;
     padding-bottom: 0;
   }
@@ -490,10 +498,17 @@
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+    /* Without flex:1 + min-height:0, a flex item defaults to shrink-resistant
+       (min-height:auto = its own content height), so it never actually gets
+       bounded by its parent — overflow-y:auto below had nothing to do. */
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
   }
 
   .dg-file-nav__item {
+    position: relative;
+    z-index: 0;
     display: flex;
     align-items: center;
     gap: 0.4rem;
@@ -505,11 +520,18 @@
     cursor: pointer;
     text-align: left;
     font-size: 0.78rem;
+    pointer-events: auto;
+    flex: 0 0 auto;
   }
 
   .dg-file-nav__item:hover {
     border-color: var(--dg-border, #444);
     background: rgba(255, 255, 255, 0.03);
+  }
+
+  .dg-file-nav__item--active {
+    border-color: var(--dg-accent, #4f8cff);
+    background: var(--dg-accent-bg, rgba(79, 140, 255, 0.08));
   }
 
   .dg-file-nav__path {

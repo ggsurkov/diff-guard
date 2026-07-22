@@ -69,9 +69,29 @@ ${focusList}
   ]
 }
 - payload для "inline_fix": { "oldCode": string, "newCode": string, "explanation": string }
-- payload для "animation_sandbox": { "badCss": string, "goodCss": string, "explanation": string }
+- payload для "animation_sandbox": {
+    "description": string — подробное объяснение проблемы, например: "Анимация свойств margin-left и width
+      вызывает пересчёт макета (reflow) на каждом кадре. Используйте transform: translate()/scale(), чтобы
+      перенести анимацию на GPU.",
+    "badCode": string — РЕАЛЬНАЯ строка/блок CSS из диффа, которую нужно заменить (например:
+      "transition: margin-left 0.4s ease, width 0.4s ease;"). Обязана быть точной подстрокой, присутствующей
+      в приведённом диффе, чтобы её можно было автоматически найти и заменить,
+    "goodCode": string — оптимизированная замена для badCode (например:
+      "transition: transform 0.4s ease;\ntransform: translate3d(0, 0, 0);"),
+    "badCss": string, "goodCss": string — CSS-правила для класса ".box" (уже существующего в песочнице,
+      отдельно от badCode/goodCode), которые ОБЯЗАНЫ включать @keyframes с бесконечным зацикленным движением,
+      например: ".box{animation:jankMove 1.2s ease-in-out infinite alternate;}
+      @keyframes jankMove{from{margin-left:0;}to{margin-left:calc(100% - 26px);}}". Эта анимация — только
+      для наглядной демонстрации в песочнице, она должна проигрываться сама по себе сразу при загрузке;
+      статичные стили, transition на :hover или любой другой эффект, требующий действия пользователя, недопустимы.
+  }
 - payload для "ux_tip": { "description": string }
-- lineTarget обязан совпадать с номером added/context-строки, реально присутствующей в предоставленном диффе. Не придумывай filePath и lineTarget, которых нет во входных данных.
+- Каждая строка диффа промаркирована тегом в начале строки — это ЕДИНСТВЕННЫЙ источник номеров строк:
+  "[L<номер>]" — реальный номер этой строки в НОВОМ файле (после применения диффа);
+  "[DEL]" — строка была удалена и в новом файле не существует, у неё нет номера.
+- lineTarget обязан быть числом из тега [L<номер>] ровно той строки, к которой относится замечание. Никогда не
+  указывай lineTarget для строки с тегом [DEL] — такие строки не существуют в новом файле и не могут быть целью
+  замечания. Не придумывай filePath и lineTarget, которых нет во входных данных.
 - Если явных проблем не найдено — верни "overallRisk": "low" и пустой массив "suggestions": [].`;
 }
 
@@ -177,11 +197,21 @@ function normalizeSuggestion(raw: unknown, index: number): AiSuggestion | null {
   }
 
   if (record.type === "animation_sandbox") {
+    const description = readString(payloadRecord, "description");
     const badCss = readString(payloadRecord, "badCss");
     const goodCss = readString(payloadRecord, "goodCss");
-    const explanation = readString(payloadRecord, "explanation");
-    if (badCss === null || goodCss === null || explanation === null) return null;
-    return { id, filePath, lineTarget, type: "animation_sandbox", payload: { badCss, goodCss, explanation } };
+    const badCode = readString(payloadRecord, "badCode");
+    const goodCode = readString(payloadRecord, "goodCode");
+    if (description === null || badCss === null || goodCss === null || badCode === null || goodCode === null) {
+      return null;
+    }
+    return {
+      id,
+      filePath,
+      lineTarget,
+      type: "animation_sandbox",
+      payload: { description, badCss, goodCss, badCode, goodCode },
+    };
   }
 
   if (record.type === "ux_tip") {
@@ -193,13 +223,31 @@ function normalizeSuggestion(raw: unknown, index: number): AiSuggestion | null {
   return null;
 }
 
+/**
+ * Identity key for a suggestion, independent of `id`. The model's `id` field
+ * is unreliable across streamed chunks — a fallback id like `ai-inline_fix-2`
+ * is derived from the suggestion's index in the (still-growing) partial JSON
+ * array, so the same logical finding can get a different `id` on each parse
+ * of the accumulating stream. filePath+lineTarget+type is what actually
+ * identifies "the same card" to the user, so it's the dedup key everywhere
+ * (see normalizeSuggestions below and the merge functions in App.svelte).
+ */
+export function suggestionKey(s: Pick<AiSuggestion, "filePath" | "lineTarget" | "type">): string {
+  return `${s.filePath}:${s.lineTarget}:${s.type}`;
+}
+
 function normalizeSuggestions(raw: unknown): AiSuggestion[] {
   if (!Array.isArray(raw)) return [];
   const result: AiSuggestion[] = [];
+  const seenKeys = new Set<string>();
   raw.forEach((item, index) => {
     if (result.length >= MAX_SUGGESTIONS) return;
     const suggestion = normalizeSuggestion(item, index);
-    if (suggestion) result.push(suggestion);
+    if (!suggestion) return;
+    const key = suggestionKey(suggestion);
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    result.push(suggestion);
   });
   return result;
 }

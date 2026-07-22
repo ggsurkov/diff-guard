@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "diff-guard",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Локальный AI-аудитор Git diff с генеративным UI: полноэкранный dashboard, ревью, песочница анимаций и метрики FPS, всё на устройстве.",
   "action": {
     "default_title": "diff-guard — открыть Dashboard"
@@ -14,7 +14,9 @@
     "service_worker": "src/background/index.ts",
     "type": "module"
   },
-  "permissions": ["storage"],
+  "permissions": [
+    "storage"
+  ],
   "host_permissions": [
     "https://huggingface.co/*",
     "https://*.huggingface.co/*",

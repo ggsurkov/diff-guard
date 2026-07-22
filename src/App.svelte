@@ -4,7 +4,7 @@
   import Sidebar from "./lib/dashboard/Sidebar.svelte";
   import ExportReportModal from "./lib/components/ExportReportModal.svelte";
   import { parseDiff, type ParsedDiff } from "./lib/parser/diffParser";
-  import { streamMockAnalysis } from "./lib/services/mockAi";
+  import { suggestionKey } from "./lib/services/prompts";
   import { isWebGpuSupported } from "./lib/services/webgpu";
   import {
     analyzeDiff as analyzeDiffWithOllama,
@@ -29,7 +29,7 @@
 
   const webGpuSupported = isWebGpuSupported();
 
-  let mode: AiMode = $state(webGpuSupported ? "webllm" : "mock");
+  let mode: AiMode = $state(webGpuSupported ? "webllm" : "ollama");
   let engineStatus: EngineStatus = $state(webGpuSupported ? { kind: "idle" } : { kind: "no-webgpu" });
   let ollamaConfig: OllamaConfig = $state({ ...DEFAULT_OLLAMA_CONFIG });
   let anthropicConfig: AnthropicConfig = $state({ ...DEFAULT_ANTHROPIC_CONFIG });
@@ -56,7 +56,7 @@
       case "ready":
         return "Готово к аудиту.";
       case "no-webgpu":
-        return "WebGPU недоступен в этом браузере — используйте Ollama или Mock Demo.";
+        return "WebGPU недоступен в этом браузере — используйте Ollama или Claude API.";
       case "error":
         return `Ошибка: ${engineStatus.message}`;
     }
@@ -92,34 +92,31 @@
     auditRules = rules;
   }
 
-  function mergeStreamedResult(partial: Partial<AiAnalysisResult>, seenIds: Set<string>): void {
+  // Dedup key is `${filePath}:${lineTarget}:${type}` (via suggestionKey), not `suggestion.id`.
+  // The model's `id` is unreliable across streamed re-parses of the growing partial JSON — a
+  // fallback id like `ai-inline_fix-2` depends on array index, so the same logical finding can
+  // get a different `id` between chunks (or between the last streamed chunk and the final parse),
+  // which let true duplicates slip past an id-keyed Set and render as two identical cards.
+  function mergeStreamedResult(partial: Partial<AiAnalysisResult>, seenKeys: Set<string>): void {
     if (partial.overallRisk) overallRisk = partial.overallRisk;
     if (partial.suggestions) {
       for (const suggestion of partial.suggestions) {
-        if (!seenIds.has(suggestion.id)) {
-          seenIds.add(suggestion.id);
+        const key = suggestionKey(suggestion);
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
           suggestions = [...suggestions, suggestion];
         }
       }
     }
   }
 
-  function mergeFinalResult(result: AiAnalysisResult, seenIds: Set<string>): void {
+  function mergeFinalResult(result: AiAnalysisResult, seenKeys: Set<string>): void {
     overallRisk = result.overallRisk;
     for (const suggestion of result.suggestions) {
-      if (!seenIds.has(suggestion.id)) {
-        seenIds.add(suggestion.id);
+      const key = suggestionKey(suggestion);
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
         suggestions = [...suggestions, suggestion];
-      }
-    }
-  }
-
-  async function runMockAudit(): Promise<void> {
-    for await (const event of streamMockAnalysis(parsed)) {
-      if (event.kind === "risk") {
-        overallRisk = event.overallRisk;
-      } else if (event.kind === "suggestion") {
-        suggestions = [...suggestions, event.suggestion];
       }
     }
   }
@@ -147,10 +144,10 @@
       }
     }
 
-    const seenIds = new Set<string>();
+    const seenKeys = new Set<string>();
     try {
-      const result = await analyzeDiff(parsed, (partial) => mergeStreamedResult(partial, seenIds), auditRules);
-      mergeFinalResult(result, seenIds);
+      const result = await analyzeDiff(parsed, (partial) => mergeStreamedResult(partial, seenKeys), auditRules);
+      mergeFinalResult(result, seenKeys);
     } catch (err) {
       engineStatus = { kind: "error", message: err instanceof Error ? err.message : String(err) };
     }
@@ -170,15 +167,15 @@
       return;
     }
 
-    const seenIds = new Set<string>();
+    const seenKeys = new Set<string>();
     try {
       const result = await analyzeDiffWithOllama(
         parsed,
         ollamaConfig,
-        (partial) => mergeStreamedResult(partial, seenIds),
+        (partial) => mergeStreamedResult(partial, seenKeys),
         auditRules,
       );
-      mergeFinalResult(result, seenIds);
+      mergeFinalResult(result, seenKeys);
     } catch (err) {
       engineStatus = { kind: "error", message: err instanceof Error ? err.message : String(err) };
     }
@@ -192,15 +189,15 @@
 
     engineStatus = { kind: "loading", text: `Запрос к Anthropic API (${anthropicConfig.model})…`, progress: 0 };
 
-    const seenIds = new Set<string>();
+    const seenKeys = new Set<string>();
     try {
       const result = await analyzeDiffWithAnthropic(
         parsed,
         anthropicConfig,
-        (partial) => mergeStreamedResult(partial, seenIds),
+        (partial) => mergeStreamedResult(partial, seenKeys),
         auditRules,
       );
-      mergeFinalResult(result, seenIds);
+      mergeFinalResult(result, seenKeys);
       engineStatus = { kind: "ready" };
     } catch (err) {
       engineStatus = { kind: "error", message: err instanceof Error ? err.message : String(err) };
@@ -214,9 +211,7 @@
     suggestions = [];
 
     try {
-      if (mode === "mock") {
-        await runMockAudit();
-      } else if (mode === "ollama") {
+      if (mode === "ollama") {
         await runOllamaAudit();
       } else if (mode === "anthropic") {
         await runAnthropicAudit();
@@ -318,6 +313,13 @@
     min-height: 0;
     display: grid;
     grid-template-columns: 320px 1fr;
+    /* Without an explicit row track, an implicit grid row sizes to `auto` —
+       i.e. to the tallest child's CONTENT height — so a long diff would grow
+       the whole row (and stretch the sidebar along with it) past the
+       viewport instead of being capped by it. `minmax(0, 1fr)` bounds the
+       row to the space actually available here, letting each grid item's
+       own overflow/min-height:0 do the scrolling instead. */
+    grid-template-rows: minmax(0, 1fr);
   }
 
   @media (max-width: 900px) {

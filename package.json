@@ -1,6 +1,6 @@
 {
   "name": "diff-guard",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local-first AI Git diff reviewer with a full-page dashboard, generative UI, and a WebLLM/WebGPU or local Ollama inference engine.",
   "private": true,
   "type": "module",

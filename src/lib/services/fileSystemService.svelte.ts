@@ -1,3 +1,5 @@
+import { SvelteSet } from "svelte/reactivity";
+
 /**
  * Wraps the File System Access API so InlineFixCard can write AI fixes
  * straight back to disk. Module-level $state (Svelte 5 "universal reactivity")
@@ -11,6 +13,15 @@ export const fileSystemState = $state<{
   dirHandle: null,
   folderName: null,
 });
+
+/**
+ * IDs of AiSuggestions successfully written to disk via applyFixToFile.
+ * Same "universal reactivity" pattern as fileSystemState — both
+ * InlineFixCard (to lock its button) and DiffViewer (to highlight the
+ * corresponding line) read this without prop drilling. A SvelteSet (not a
+ * plain $state Set) so mutating it in place (`.add`) is itself reactive.
+ */
+export const appliedFixIds = new SvelteSet<string>();
 
 export function isFileSystemAccessSupported(): boolean {
   return typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
@@ -47,8 +58,15 @@ async function resolveFileHandle(root: FileSystemDirectoryHandle, relativePath: 
 /**
  * Replaces the first occurrence of `oldCode` with `newCode` in the given file
  * (relative to the bound project folder) and writes the result back to disk.
+ * On success, marks `suggestionId` as applied in `appliedFixIds` so the
+ * InlineFixCard/DiffViewer UI can reflect it immediately.
  */
-export async function applyFixToFile(relativePath: string, oldCode: string, newCode: string): Promise<void> {
+export async function applyFixToFile(
+  suggestionId: string,
+  relativePath: string,
+  oldCode: string,
+  newCode: string,
+): Promise<void> {
   const root = fileSystemState.dirHandle;
   if (!root) {
     throw new Error("Папка проекта не привязана — сначала выберите её кнопкой в панели.");
@@ -66,4 +84,6 @@ export async function applyFixToFile(relativePath: string, oldCode: string, newC
   const writable = await fileHandle.createWritable();
   await writable.write(updated);
   await writable.close();
+
+  appliedFixIds.add(suggestionId);
 }

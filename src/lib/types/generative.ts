@@ -7,9 +7,14 @@ export interface InlineFixPayload {
 }
 
 export interface AnimationSandboxPayload {
+  /** Explanation shown in the banner above the animated preview. */
+  description: string;
+  /** Full CSS rule(s) for the sandbox's demo ".box" element, incl. @keyframes — drives the animated iframe preview. */
   badCss: string;
   goodCss: string;
-  explanation: string;
+  /** Real source snippet from the file, for the code-comparison view and for applyFixToFile find/replace. */
+  badCode: string;
+  goodCode: string;
 }
 
 export interface UxTipPayload {
