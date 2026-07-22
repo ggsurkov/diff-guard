@@ -1,6 +1,8 @@
 import type { ParsedDiff } from "../parser/diffParser";
+import type { AuditRulesConfig } from "../types/engine";
+import { DEFAULT_AUDIT_RULES } from "../types/engine";
 import type { AiAnalysisResult } from "../types/generative";
-import { SYSTEM_PROMPT, buildUserPrompt, extractAndParseJson, extractPartialAnalysis } from "./prompts";
+import { buildSystemPrompt, buildUserPrompt, extractAndParseJson, extractPartialAnalysis } from "./prompts";
 
 export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
 export const DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:7b";
@@ -57,6 +59,7 @@ export async function analyzeDiff(
   diff: ParsedDiff,
   config: OllamaConfig,
   onChunk?: (partialResult: Partial<AiAnalysisResult>) => void,
+  rules: AuditRulesConfig = DEFAULT_AUDIT_RULES,
 ): Promise<AiAnalysisResult> {
   const { prompt, truncated } = buildUserPrompt(diff);
   if (truncated) {
@@ -72,7 +75,7 @@ export async function analyzeDiff(
       format: "json",
       options: { temperature: 0.2 },
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: buildSystemPrompt(rules) },
         { role: "user", content: prompt },
       ],
     }),

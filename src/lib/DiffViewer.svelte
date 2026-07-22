@@ -46,7 +46,7 @@
               {#each suggestionsFor(file.filePath, line.lineNumber) as suggestion (suggestion.id)}
                 <div class="dg-widget-slot">
                   {#if suggestion.type === "inline_fix"}
-                    <InlineFixCard payload={suggestion.payload} />
+                    <InlineFixCard filePath={suggestion.filePath} payload={suggestion.payload} />
                   {:else if suggestion.type === "animation_sandbox"}
                     <AnimationSandbox payload={suggestion.payload} />
                   {/if}

@@ -1,13 +1,17 @@
 <script lang="ts">
   import type { InlineFixPayload } from "../../types/generative";
+  import { applyFixToFile, fileSystemState } from "../../services/fileSystemService.svelte";
 
   interface Props {
+    filePath: string;
     payload: InlineFixPayload;
   }
 
-  let { payload }: Props = $props();
+  let { filePath, payload }: Props = $props();
 
   let copied = $state(false);
+  let applyState: "idle" | "applying" | "done" | "error" = $state("idle");
+  let applyError = $state<string | null>(null);
 
   async function copyFix(): Promise<void> {
     await navigator.clipboard.writeText(payload.newCode);
@@ -15,6 +19,18 @@
     setTimeout(() => {
       copied = false;
     }, 1500);
+  }
+
+  async function applyToFile(): Promise<void> {
+    applyState = "applying";
+    applyError = null;
+    try {
+      await applyFixToFile(filePath, payload.oldCode, payload.newCode);
+      applyState = "done";
+    } catch (err) {
+      applyState = "error";
+      applyError = err instanceof Error ? err.message : String(err);
+    }
   }
 </script>
 
@@ -31,9 +47,21 @@
       <pre class="dg-fix__code">{payload.newCode}</pre>
     </div>
   </div>
-  <button type="button" class="dg-fix__copy" onclick={copyFix}>
-    {copied ? "Скопировано ✓" : "Скопировать фикс"}
-  </button>
+  <div class="dg-fix__actions">
+    <button type="button" class="dg-fix__copy" onclick={copyFix}>
+      {copied ? "Скопировано ✓" : "Скопировать фикс"}
+    </button>
+    {#if fileSystemState.dirHandle}
+      <button type="button" class="dg-fix__apply" onclick={applyToFile} disabled={applyState === "applying"}>
+        {applyState === "applying" ? "Применяю…" : "💾 Применить фикс прямо в файл"}
+      </button>
+    {/if}
+  </div>
+  {#if applyState === "done"}
+    <p class="dg-fix__status dg-fix__status--ok">Успешно исправлено!</p>
+  {:else if applyState === "error"}
+    <p class="dg-fix__status dg-fix__status--error">Не удалось применить фикс: {applyError}</p>
+  {/if}
 </div>
 
 <style>
@@ -97,7 +125,14 @@
     word-break: break-word;
   }
 
-  .dg-fix__copy {
+  .dg-fix__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .dg-fix__copy,
+  .dg-fix__apply {
     align-self: flex-start;
     padding: 0.3rem 0.7rem;
     border: 1px solid var(--dg-border, #555);
@@ -108,7 +143,30 @@
     font-size: 0.78rem;
   }
 
-  .dg-fix__copy:hover {
+  .dg-fix__copy:hover,
+  .dg-fix__apply:hover {
     border-color: var(--dg-accent, #4f8cff);
+  }
+
+  .dg-fix__apply {
+    border-color: rgba(63, 185, 80, 0.5);
+  }
+
+  .dg-fix__apply:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  .dg-fix__status {
+    margin: 0;
+    font-size: 0.76rem;
+  }
+
+  .dg-fix__status--ok {
+    color: #3fb950;
+  }
+
+  .dg-fix__status--error {
+    color: #f85149;
   }
 </style>

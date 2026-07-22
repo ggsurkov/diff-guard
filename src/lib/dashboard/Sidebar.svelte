@@ -1,9 +1,15 @@
 <script lang="ts">
   import type { DiffFile } from "../parser/diffParser";
   import type { OllamaConfig } from "../services/ollamaService";
-  import type { AiMode, EngineStatus } from "../types/engine";
+  import type { AiMode, AuditRulesConfig, EngineStatus } from "../types/engine";
   import type { AiSuggestion, RiskLevel } from "../types/generative";
   import RiskHeatmap from "../components/widgets/RiskHeatmap.svelte";
+  import AuditSettings from "../components/AuditSettings.svelte";
+  import {
+    fileSystemState,
+    isFileSystemAccessSupported,
+    selectProjectFolder,
+  } from "../services/fileSystemService.svelte";
 
   interface Props {
     fileName: string;
@@ -16,8 +22,10 @@
     isAuditing: boolean;
     webGpuSupported: boolean;
     ollamaConfig: OllamaConfig;
+    auditRules: AuditRulesConfig;
     onModeChange: (mode: AiMode) => void;
     onOllamaConfigChange: (config: OllamaConfig) => void;
+    onAuditRulesChange: (rules: AuditRulesConfig) => void;
     onRunAudit: () => void;
     onReset: () => void;
   }
@@ -33,11 +41,25 @@
     isAuditing,
     webGpuSupported,
     ollamaConfig,
+    auditRules,
     onModeChange,
     onOllamaConfigChange,
+    onAuditRulesChange,
     onRunAudit,
     onReset,
   }: Props = $props();
+
+  const fsSupported = isFileSystemAccessSupported();
+  let folderPickError = $state<string | null>(null);
+
+  async function handlePickFolder(): Promise<void> {
+    folderPickError = null;
+    try {
+      await selectProjectFolder();
+    } catch (err) {
+      folderPickError = err instanceof Error ? err.message : String(err);
+    }
+  }
 
   function suggestionCountFor(filePath: string): number {
     return suggestions.filter((s) => s.filePath === filePath).length;
@@ -106,6 +128,25 @@
         </label>
       </div>
     {/if}
+  </div>
+
+  {#if fsSupported}
+    <div class="dg-sidebar__section">
+      <h2 class="dg-sidebar__heading">Локальные файлы</h2>
+      {#if fileSystemState.folderName}
+        <div class="dg-folder-status">📁 Привязано: <strong>{fileSystemState.folderName}</strong></div>
+      {/if}
+      <button type="button" class="dg-folder-btn" onclick={handlePickFolder}>
+        {fileSystemState.folderName ? "Сменить папку проекта" : "📁 Привязать папку проекта"}
+      </button>
+      {#if folderPickError}
+        <div class="dg-folder-error">{folderPickError}</div>
+      {/if}
+    </div>
+  {/if}
+
+  <div class="dg-sidebar__section">
+    <AuditSettings rules={auditRules} disabled={isAuditing} onChange={onAuditRulesChange} />
 
     <button type="button" class="dg-run-btn" onclick={onRunAudit} disabled={isAuditing}>
       {isAuditing ? "Анализирую…" : "🤖 Запустить ИИ-Аудит"}
@@ -310,6 +351,34 @@
     height: 100%;
     background: var(--dg-accent, #4f8cff);
     transition: width 0.2s ease;
+  }
+
+  .dg-folder-status {
+    font-size: 0.78rem;
+    color: var(--dg-text-muted, #999);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dg-folder-btn {
+    align-self: flex-start;
+    padding: 0.4rem 0.7rem;
+    border: 1px solid var(--dg-border, #555);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.8rem;
+  }
+
+  .dg-folder-btn:hover {
+    border-color: var(--dg-accent, #4f8cff);
+  }
+
+  .dg-folder-error {
+    font-size: 0.74rem;
+    color: #f85149;
   }
 
   .dg-file-nav {
