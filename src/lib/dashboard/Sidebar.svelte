@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { DiffFile } from "../parser/diffParser";
   import type { OllamaConfig } from "../services/ollamaService";
+  import type { AnthropicConfig } from "../services/anthropicService";
+  import { ANTHROPIC_MODEL_OPTIONS } from "../services/anthropicService";
   import type { AiMode, AuditRulesConfig, EngineStatus } from "../types/engine";
   import type { AiSuggestion, RiskLevel } from "../types/generative";
   import RiskHeatmap from "../components/widgets/RiskHeatmap.svelte";
@@ -22,9 +24,11 @@
     isAuditing: boolean;
     webGpuSupported: boolean;
     ollamaConfig: OllamaConfig;
+    anthropicConfig: AnthropicConfig;
     auditRules: AuditRulesConfig;
     onModeChange: (mode: AiMode) => void;
     onOllamaConfigChange: (config: OllamaConfig) => void;
+    onAnthropicConfigChange: (config: AnthropicConfig) => void;
     onAuditRulesChange: (rules: AuditRulesConfig) => void;
     onRunAudit: () => void;
     onReset: () => void;
@@ -41,9 +45,11 @@
     isAuditing,
     webGpuSupported,
     ollamaConfig,
+    anthropicConfig,
     auditRules,
     onModeChange,
     onOllamaConfigChange,
+    onAnthropicConfigChange,
     onAuditRulesChange,
     onRunAudit,
     onReset,
@@ -51,6 +57,10 @@
 
   const fsSupported = isFileSystemAccessSupported();
   let folderPickError = $state<string | null>(null);
+  let showAnthropicKey = $state(false);
+  let anthropicModelPreset = $derived(
+    ANTHROPIC_MODEL_OPTIONS.some((option) => option.id === anthropicConfig.model) ? anthropicConfig.model : "custom",
+  );
 
   async function handlePickFolder(): Promise<void> {
     folderPickError = null;
@@ -77,6 +87,21 @@
   function handleModelInput(event: Event): void {
     const value = (event.currentTarget as HTMLInputElement).value;
     onOllamaConfigChange({ ...ollamaConfig, model: value });
+  }
+
+  function handleAnthropicApiKeyInput(event: Event): void {
+    const value = (event.currentTarget as HTMLInputElement).value;
+    onAnthropicConfigChange({ ...anthropicConfig, apiKey: value });
+  }
+
+  function handleAnthropicModelPresetChange(event: Event): void {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    onAnthropicConfigChange({ ...anthropicConfig, model: value === "custom" ? "" : value });
+  }
+
+  function handleAnthropicCustomModelInput(event: Event): void {
+    const value = (event.currentTarget as HTMLInputElement).value;
+    onAnthropicConfigChange({ ...anthropicConfig, model: value });
   }
 </script>
 
@@ -109,6 +134,14 @@
       <button
         type="button"
         class="dg-engine-btn"
+        class:dg-engine-btn--active={mode === "anthropic"}
+        onclick={() => onModeChange("anthropic")}
+      >
+        🧠 Claude API (Anthropic)
+      </button>
+      <button
+        type="button"
+        class="dg-engine-btn"
         class:dg-engine-btn--active={mode === "mock"}
         onclick={() => onModeChange("mock")}
       >
@@ -126,6 +159,52 @@
           <span>Модель</span>
           <input type="text" value={ollamaConfig.model} oninput={handleModelInput} />
         </label>
+      </div>
+    {/if}
+
+    {#if mode === "anthropic"}
+      <div class="dg-ollama-config">
+        <label class="dg-ollama-config__field">
+          <span>Anthropic API Key</span>
+          <div class="dg-anthropic-key-row">
+            <input
+              type={showAnthropicKey ? "text" : "password"}
+              value={anthropicConfig.apiKey}
+              oninput={handleAnthropicApiKeyInput}
+              placeholder="sk-ant-..."
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button
+              type="button"
+              class="dg-anthropic-key-toggle"
+              onclick={() => (showAnthropicKey = !showAnthropicKey)}
+              aria-label={showAnthropicKey ? "Скрыть ключ" : "Показать ключ"}
+            >
+              {showAnthropicKey ? "🙈" : "👁"}
+            </button>
+          </div>
+        </label>
+        <label class="dg-ollama-config__field">
+          <span>Модель</span>
+          <select value={anthropicModelPreset} onchange={handleAnthropicModelPresetChange}>
+            {#each ANTHROPIC_MODEL_OPTIONS as option (option.id)}
+              <option value={option.id}>{option.label}</option>
+            {/each}
+            <option value="custom">Custom (кастомный ID модели)</option>
+          </select>
+        </label>
+        {#if anthropicModelPreset === "custom"}
+          <label class="dg-ollama-config__field">
+            <span>ID модели</span>
+            <input
+              type="text"
+              value={anthropicConfig.model}
+              oninput={handleAnthropicCustomModelInput}
+              placeholder="claude-..."
+            />
+          </label>
+        {/if}
       </div>
     {/if}
   </div>
@@ -292,7 +371,8 @@
     color: var(--dg-text-muted, #999);
   }
 
-  .dg-ollama-config__field input {
+  .dg-ollama-config__field input,
+  .dg-ollama-config__field select {
     padding: 0.3rem 0.45rem;
     border: 1px solid var(--dg-border, #555);
     border-radius: 5px;
@@ -300,6 +380,31 @@
     color: inherit;
     font-size: 0.78rem;
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+
+  .dg-anthropic-key-row {
+    display: flex;
+    gap: 0.3rem;
+  }
+
+  .dg-anthropic-key-row input {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .dg-anthropic-key-toggle {
+    flex: 0 0 auto;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--dg-border, #555);
+    border-radius: 5px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.8rem;
+  }
+
+  .dg-anthropic-key-toggle:hover {
+    border-color: var(--dg-accent, #4f8cff);
   }
 
   .dg-run-btn {
