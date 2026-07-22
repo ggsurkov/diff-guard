@@ -12,6 +12,13 @@
     DEFAULT_OLLAMA_CONFIG,
     type OllamaConfig,
   } from "./lib/services/ollamaService";
+  import {
+    analyzeDiff as analyzeDiffWithAnthropic,
+    DEFAULT_ANTHROPIC_CONFIG,
+    loadAnthropicConfig,
+    saveAnthropicConfig,
+    type AnthropicConfig,
+  } from "./lib/services/anthropicService";
   import type { LoadedDiff } from "./lib/types";
   import type { AiMode, AuditRulesConfig, EngineStatus } from "./lib/types/engine";
   import { DEFAULT_AUDIT_RULES } from "./lib/types/engine";
@@ -25,7 +32,14 @@
   let mode: AiMode = $state(webGpuSupported ? "webllm" : "mock");
   let engineStatus: EngineStatus = $state(webGpuSupported ? { kind: "idle" } : { kind: "no-webgpu" });
   let ollamaConfig: OllamaConfig = $state({ ...DEFAULT_OLLAMA_CONFIG });
+  let anthropicConfig: AnthropicConfig = $state({ ...DEFAULT_ANTHROPIC_CONFIG });
   let auditRules: AuditRulesConfig = $state({ ...DEFAULT_AUDIT_RULES });
+
+  $effect(() => {
+    void loadAnthropicConfig().then((config) => {
+      anthropicConfig = config;
+    });
+  });
 
   let overallRisk: RiskLevel | null = $state(null);
   let suggestions: AiSuggestion[] = $state([]);
@@ -34,9 +48,9 @@
   let statusText = $derived.by(() => {
     switch (engineStatus.kind) {
       case "idle":
-        return mode === "ollama"
-          ? "Ollama ещё не проверена — подключение проверится при запуске аудита."
-          : "Модель ещё не загружена — загрузится при первом запуске аудита.";
+        if (mode === "ollama") return "Ollama ещё не проверена — подключение проверится при запуске аудита.";
+        if (mode === "anthropic") return "Укажите Anthropic API Key в сайдбаре и запустите аудит.";
+        return "Модель ещё не загружена — загрузится при первом запуске аудита.";
       case "loading":
         return `${engineStatus.text} (${Math.round(engineStatus.progress * 100)}%)`;
       case "ready":
@@ -67,6 +81,11 @@
 
   function handleOllamaConfigChange(config: OllamaConfig): void {
     ollamaConfig = config;
+  }
+
+  function handleAnthropicConfigChange(config: AnthropicConfig): void {
+    anthropicConfig = config;
+    void saveAnthropicConfig(config);
   }
 
   function handleAuditRulesChange(rules: AuditRulesConfig): void {
@@ -165,6 +184,29 @@
     }
   }
 
+  async function runAnthropicAudit(): Promise<void> {
+    if (!anthropicConfig.apiKey.trim()) {
+      engineStatus = { kind: "error", message: "Укажите Anthropic API Key в настройках сайдбара." };
+      return;
+    }
+
+    engineStatus = { kind: "loading", text: `Запрос к Anthropic API (${anthropicConfig.model})…`, progress: 0 };
+
+    const seenIds = new Set<string>();
+    try {
+      const result = await analyzeDiffWithAnthropic(
+        parsed,
+        anthropicConfig,
+        (partial) => mergeStreamedResult(partial, seenIds),
+        auditRules,
+      );
+      mergeFinalResult(result, seenIds);
+      engineStatus = { kind: "ready" };
+    } catch (err) {
+      engineStatus = { kind: "error", message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   async function runAudit(): Promise<void> {
     if (isAuditing) return;
     isAuditing = true;
@@ -176,6 +218,8 @@
         await runMockAudit();
       } else if (mode === "ollama") {
         await runOllamaAudit();
+      } else if (mode === "anthropic") {
+        await runAnthropicAudit();
       } else {
         await runWebLlmAudit();
       }
@@ -211,9 +255,11 @@
         {isAuditing}
         {webGpuSupported}
         {ollamaConfig}
+        {anthropicConfig}
         {auditRules}
         onModeChange={handleModeChange}
         onOllamaConfigChange={handleOllamaConfigChange}
+        onAnthropicConfigChange={handleAnthropicConfigChange}
         onAuditRulesChange={handleAuditRulesChange}
         onRunAudit={runAudit}
         onReset={reset}
