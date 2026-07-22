@@ -1,4 +1,4 @@
-export type AiMode = "webllm" | "ollama" | "anthropic" | "mock";
+export type AiMode = "webllm" | "ollama" | "anthropic";
 
 export type EngineStatus =
   | { kind: "idle" }

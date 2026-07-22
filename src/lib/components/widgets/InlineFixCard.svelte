@@ -1,17 +1,24 @@
 <script lang="ts">
   import type { InlineFixPayload } from "../../types/generative";
-  import { applyFixToFile, fileSystemState } from "../../services/fileSystemService.svelte";
+  import { appliedFixIds, applyFixToFile, fileSystemState } from "../../services/fileSystemService.svelte";
 
   interface Props {
+    suggestionId: string;
     filePath: string;
     payload: InlineFixPayload;
   }
 
-  let { filePath, payload }: Props = $props();
+  let { suggestionId, filePath, payload }: Props = $props();
 
   let copied = $state(false);
-  let applyState: "idle" | "applying" | "done" | "error" = $state("idle");
+  let applyState: "idle" | "applying" | "error" = $state("idle");
   let applyError = $state<string | null>(null);
+
+  // Source of truth for "was this fix written to disk" — a module-level
+  // reactive set (not local component state) so the applied status survives
+  // this card being destroyed/recreated and is visible to DiffViewer too
+  // (it highlights the corresponding line using the same set).
+  let isApplied = $derived(appliedFixIds.has(suggestionId));
 
   async function copyFix(): Promise<void> {
     await navigator.clipboard.writeText(payload.newCode);
@@ -22,11 +29,12 @@
   }
 
   async function applyToFile(): Promise<void> {
+    if (isApplied || applyState === "applying") return;
     applyState = "applying";
     applyError = null;
     try {
-      await applyFixToFile(filePath, payload.oldCode, payload.newCode);
-      applyState = "done";
+      await applyFixToFile(suggestionId, filePath, payload.oldCode, payload.newCode);
+      applyState = "idle";
     } catch (err) {
       applyState = "error";
       applyError = err instanceof Error ? err.message : String(err);
@@ -52,14 +60,16 @@
       {copied ? "Скопировано ✓" : "Скопировать фикс"}
     </button>
     {#if fileSystemState.dirHandle}
-      <button type="button" class="dg-fix__apply" onclick={applyToFile} disabled={applyState === "applying"}>
-        {applyState === "applying" ? "Применяю…" : "💾 Применить фикс прямо в файл"}
-      </button>
+      {#if isApplied}
+        <div class="dg-fix__applied">✅ Фикс успешно применён к файлу</div>
+      {:else}
+        <button type="button" class="dg-fix__apply" onclick={applyToFile} disabled={applyState === "applying"}>
+          {applyState === "applying" ? "Применяю…" : "💾 Применить фикс прямо в файл"}
+        </button>
+      {/if}
     {/if}
   </div>
-  {#if applyState === "done"}
-    <p class="dg-fix__status dg-fix__status--ok">Успешно исправлено!</p>
-  {:else if applyState === "error"}
+  {#if applyState === "error"}
     <p class="dg-fix__status dg-fix__status--error">Не удалось применить фикс: {applyError}</p>
   {/if}
 </div>
@@ -157,13 +167,20 @@
     cursor: default;
   }
 
+  .dg-fix__applied {
+    align-self: flex-start;
+    padding: 0.3rem 0.7rem;
+    border: 1px solid rgba(63, 185, 80, 0.5);
+    border-radius: 6px;
+    background: rgba(63, 185, 80, 0.15);
+    color: #3fb950;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+
   .dg-fix__status {
     margin: 0;
     font-size: 0.76rem;
-  }
-
-  .dg-fix__status--ok {
-    color: #3fb950;
   }
 
   .dg-fix__status--error {

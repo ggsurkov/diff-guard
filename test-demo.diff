@@ -1,0 +1,73 @@
+diff --git a/src/components/AnimatedCard.svelte b/src/components/AnimatedCard.svelte
+new file mode 100644
+index 0000000..1a2b3c4
+--- /dev/null
++++ b/src/components/AnimatedCard.svelte
+@@ -0,0 +1,42 @@
++<script lang="ts">
++  export let title: string = "Card";
++  export let isOpen: boolean = false;
++
++  function toggle(): void {
++    isOpen = !isOpen;
++  }
++</script>
++
++<button on:click={toggle}>{title}</button>
++
++<div class="card" class:card--open={isOpen}>
++  <div class="card__slider"></div>
++  <p>Some content that slides in from the side.</p>
++</div>
++
++<style>
++  .card {
++    position: relative;
++    overflow: hidden;
++    height: 0;
++    transition: height 0.3s ease;
++  }
++
++  .card--open {
++    height: 160px;
++  }
++
++  .card__slider {
++    position: absolute;
++    top: 0;
++    width: 40px;
++    margin-left: 0;
++    background: #4f8cff;
++    transition: margin-left 0.4s ease, width 0.4s ease;
++  }
++
++  .card--open .card__slider {
++    margin-left: calc(100% - 40px);
++    width: 80px;
++  }
++</style>
+diff --git a/src/utils/dataFetcher.ts b/src/utils/dataFetcher.ts
+new file mode 100644
+index 0000000..5d6e7f8
+--- /dev/null
++++ b/src/utils/dataFetcher.ts
+@@ -0,0 +1,19 @@
++export async function fetchUserData(userId: string): Promise<any> {
++  const response = await fetch(`/api/users/${userId}`);
++  const data = await response.json();
++  return data;
++}
++
++export function parseUserResponse(raw: any) {
++  const user = raw as { id: number; name: string; email: string };
++  return user;
++}
++
++export async function updateUserSettings(userId: string, settings: any): Promise<void> {
++  const response = await fetch(`/api/users/${userId}/settings`, {
++    method: "PATCH",
++    body: JSON.stringify(settings),
++  });
++  const result = await response.json();
++  console.log("Updated:", result);
++}
