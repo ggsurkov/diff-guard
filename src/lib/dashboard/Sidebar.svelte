@@ -3,6 +3,7 @@
   import type { OllamaConfig } from "../services/ollamaService";
   import type { AnthropicConfig } from "../services/anthropicService";
   import { ANTHROPIC_MODEL_OPTIONS } from "../services/anthropicService";
+  import { getExtensionId } from "../services/claudeNativeService";
   import type { AiMode, AuditRulesConfig, EngineStatus } from "../types/engine";
   import type { AiSuggestion, RiskLevel } from "../types/generative";
   import RiskHeatmap from "../components/widgets/RiskHeatmap.svelte";
@@ -26,6 +27,7 @@
     ollamaConfig: OllamaConfig;
     anthropicConfig: AnthropicConfig;
     auditRules: AuditRulesConfig;
+    claudeCliHealthy: boolean | null;
     onModeChange: (mode: AiMode) => void;
     onOllamaConfigChange: (config: OllamaConfig) => void;
     onAnthropicConfigChange: (config: AnthropicConfig) => void;
@@ -47,6 +49,7 @@
     ollamaConfig,
     anthropicConfig,
     auditRules,
+    claudeCliHealthy,
     onModeChange,
     onOllamaConfigChange,
     onAnthropicConfigChange,
@@ -59,6 +62,9 @@
   let folderPickError = $state<string | null>(null);
   let activeFileIndex = $state<number | null>(null);
   let showAnthropicKey = $state(false);
+  const extensionId = getExtensionId();
+  let installCommand = $derived(extensionId ? `node native-host/install.js ${extensionId}` : "");
+  let copyState: "idle" | "copied" | "error" = $state("idle");
   let anthropicModelPreset = $derived(
     ANTHROPIC_MODEL_OPTIONS.some((option) => option.id === anthropicConfig.model) ? anthropicConfig.model : "custom",
   );
@@ -105,6 +111,18 @@
     const value = (event.currentTarget as HTMLInputElement).value;
     onAnthropicConfigChange({ ...anthropicConfig, model: value });
   }
+
+  async function handleCopyInstallCommand(): Promise<void> {
+    if (!installCommand) return;
+    try {
+      await navigator.clipboard.writeText(installCommand);
+      copyState = "copied";
+    } catch {
+      copyState = "error";
+    } finally {
+      setTimeout(() => (copyState = "idle"), 2000);
+    }
+  }
 </script>
 
 <aside class="dg-sidebar">
@@ -140,6 +158,14 @@
         onclick={() => onModeChange("anthropic")}
       >
         🧠 Claude API (Anthropic)
+      </button>
+      <button
+        type="button"
+        class="dg-engine-btn"
+        class:dg-engine-btn--active={mode === "claude-cli"}
+        onclick={() => onModeChange("claude-cli")}
+      >
+        🖥️ Claude CLI (Подписка)
       </button>
     </div>
 
@@ -198,6 +224,32 @@
               placeholder="claude-..."
             />
           </label>
+        {/if}
+      </div>
+    {/if}
+
+    {#if mode === "claude-cli"}
+      <div class="dg-ollama-config">
+        {#if claudeCliHealthy === true}
+          <div class="dg-bridge-status dg-bridge-status--ok">🟢 Claude CLI Нативный Хост Подключен</div>
+        {:else if claudeCliHealthy === false}
+          <div class="dg-bridge-status dg-bridge-status--down">🔴 Нативный хост не отвечает.</div>
+          {#if extensionId}
+            <div class="dg-bridge-extid">Ваш Extension ID: <code>{extensionId}</code></div>
+            <button type="button" class="dg-bridge-copy-btn" onclick={handleCopyInstallCommand}>
+              {#if copyState === "copied"}
+                ✅ Скопировано
+              {:else if copyState === "error"}
+                ⚠️ Не удалось скопировать
+              {:else}
+                📋 Скопировать команду установки
+              {/if}
+            </button>
+          {:else}
+            <div class="dg-bridge-extid">Extension ID недоступен вне контекста расширения Chrome.</div>
+          {/if}
+        {:else}
+          <div class="dg-bridge-status">Проверка нативного хоста…</div>
         {/if}
       </div>
     {/if}
@@ -388,6 +440,44 @@
     color: inherit;
     font-size: 0.78rem;
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+
+  .dg-bridge-status {
+    font-size: 0.78rem;
+    color: var(--dg-text-muted, #999);
+  }
+
+  .dg-bridge-status--ok {
+    color: #3fb950;
+  }
+
+  .dg-bridge-status--down {
+    color: #f85149;
+  }
+
+  .dg-bridge-extid {
+    font-size: 0.72rem;
+    color: var(--dg-text-muted, #999);
+    overflow-wrap: anywhere;
+  }
+
+  .dg-bridge-extid code {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+
+  .dg-bridge-copy-btn {
+    align-self: flex-start;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--dg-border, #555);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.76rem;
+  }
+
+  .dg-bridge-copy-btn:hover {
+    border-color: var(--dg-accent, #4f8cff);
   }
 
   .dg-anthropic-key-row {

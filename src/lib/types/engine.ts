@@ -1,4 +1,4 @@
-export type AiMode = "webllm" | "ollama" | "anthropic";
+export type AiMode = "webllm" | "ollama" | "anthropic" | "claude-cli";
 
 export type EngineStatus =
   | { kind: "idle" }
