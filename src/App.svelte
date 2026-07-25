@@ -19,6 +19,10 @@
     saveAnthropicConfig,
     type AnthropicConfig,
   } from "./lib/services/anthropicService";
+  import {
+    analyzeDiff as analyzeDiffWithClaudeCli,
+    testConnection as testClaudeNativeConnection,
+  } from "./lib/services/claudeNativeService";
   import type { LoadedDiff } from "./lib/types";
   import type { AiMode, AuditRulesConfig, EngineStatus } from "./lib/types/engine";
   import { DEFAULT_AUDIT_RULES } from "./lib/types/engine";
@@ -34,6 +38,7 @@
   let ollamaConfig: OllamaConfig = $state({ ...DEFAULT_OLLAMA_CONFIG });
   let anthropicConfig: AnthropicConfig = $state({ ...DEFAULT_ANTHROPIC_CONFIG });
   let auditRules: AuditRulesConfig = $state({ ...DEFAULT_AUDIT_RULES });
+  let claudeCliHealthy: boolean | null = $state(null);
 
   $effect(() => {
     void loadAnthropicConfig().then((config) => {
@@ -50,6 +55,7 @@
       case "idle":
         if (mode === "ollama") return "Ollama ещё не проверена — подключение проверится при запуске аудита.";
         if (mode === "anthropic") return "Укажите Anthropic API Key в сайдбаре и запустите аудит.";
+        if (mode === "claude-cli") return "Убедитесь, что нативный хост установлен, и запустите аудит.";
         return "Модель ещё не загружена — загрузится при первом запуске аудита.";
       case "loading":
         return `${engineStatus.text} (${Math.round(engineStatus.progress * 100)}%)`;
@@ -77,6 +83,11 @@
   function handleModeChange(newMode: AiMode): void {
     mode = newMode;
     engineStatus = newMode === "webllm" && !webGpuSupported ? { kind: "no-webgpu" } : { kind: "idle" };
+    if (newMode === "claude-cli") {
+      void testClaudeNativeConnection().then((ok) => {
+        claudeCliHealthy = ok;
+      });
+    }
   }
 
   function handleOllamaConfigChange(config: OllamaConfig): void {
@@ -204,6 +215,29 @@
     }
   }
 
+  async function runClaudeCliAudit(): Promise<void> {
+    engineStatus = { kind: "loading", text: "Проверка нативного хоста Claude CLI…", progress: 0 };
+    const healthy = await testClaudeNativeConnection();
+    claudeCliHealthy = healthy;
+    if (!healthy) {
+      engineStatus = {
+        kind: "error",
+        message:
+          "Нативный хост Claude CLI недоступен. Установите его: `node native-host/install.js <extension_id>` и перезапустите Chrome.",
+      };
+      return;
+    }
+
+    engineStatus = { kind: "loading", text: "Запрос к Claude CLI (claude -p)…", progress: 0 };
+    try {
+      const result = await analyzeDiffWithClaudeCli(parsed, auditRules);
+      mergeFinalResult(result, new Set());
+      engineStatus = { kind: "ready" };
+    } catch (err) {
+      engineStatus = { kind: "error", message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   async function runAudit(): Promise<void> {
     if (isAuditing) return;
     isAuditing = true;
@@ -215,6 +249,8 @@
         await runOllamaAudit();
       } else if (mode === "anthropic") {
         await runAnthropicAudit();
+      } else if (mode === "claude-cli") {
+        await runClaudeCliAudit();
       } else {
         await runWebLlmAudit();
       }
@@ -252,6 +288,7 @@
         {ollamaConfig}
         {anthropicConfig}
         {auditRules}
+        {claudeCliHealthy}
         onModeChange={handleModeChange}
         onOllamaConfigChange={handleOllamaConfigChange}
         onAnthropicConfigChange={handleAnthropicConfigChange}

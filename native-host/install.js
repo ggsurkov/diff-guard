@@ -21,7 +21,7 @@ const __dirname = path.dirname(__filename);
 // persistDefaultExtensionId below) so a later double-click of install.bat /
 // install.sh with no argument reuses the same extension ID instead of
 // failing — that's what makes those "double-click installer" scripts work.
-const DEFAULT_EXTENSION_ID = "";
+const DEFAULT_EXTENSION_ID = "elglhbpgchlbgddlfoainflmpblhihho";
 
 function fail(message) {
   console.error(`[diff-guard] ${message}`);

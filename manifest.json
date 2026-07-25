@@ -15,7 +15,8 @@
     "type": "module"
   },
   "permissions": [
-    "storage"
+    "storage",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "https://huggingface.co/*",
